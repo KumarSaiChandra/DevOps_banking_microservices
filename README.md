@@ -126,5 +126,5 @@ Article series
 
 #### Author
 
-<h1 align="center">Hi 👋, I'm Chinthaka Dinadasa</h1>
-<h3 align="center">A Passionate Java Fullstack Developer from Sri Lanka and Author of JavatoDev.com</h3>
+<h1 align="center">Hi 👋, I'm Kumar Sai Chandra</h1>
+<h3 align="center">DevOps Engineer</h3>

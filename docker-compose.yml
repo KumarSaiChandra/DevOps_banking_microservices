@@ -1,0 +1,469 @@
+#Version of docker-compose syntax we are using
+version: "3.8"
+
+# ─────────────────────────────────────────────────────────────────────
+# NETWORKS
+# Defines a custom network so all containers can talk to each other
+# Without this, containers run in isolation and can't communicate
+# ─────────────────────────────────────────────────────────────────────
+networks:
+  banking-net:
+    driver: bridge
+    # bridge = creates a private internal network
+    # All containers on this network can reach each other
+    # by using their container NAME as hostname
+
+# ─────────────────────────────────────────────────────────────────────
+# VOLUMES
+# Named volumes persist data even after containers stop/restart
+# Without volumes, all DB data is lost when container restarts!
+# ─────────────────────────────────────────────────────────────────────
+volumes:
+  mysql_data:
+    # Stores MySQL database files permanently on host machine
+  postgres_data:
+    # Stores PostgreSQL data for Keycloak permanently
+
+# ─────────────────────────────────────────────────────────────────────
+# SERVICES
+# Each service = one container
+# Startup order matters! Infrastructure first, app services last
+# ─────────────────────────────────────────────────────────────────────
+services:
+
+  # ───────────────────────────────────────────────────────────────────
+  # 1. MySQL — Primary Database
+  # Used by: core-banking, user, fund-transfer, utility-payment services
+  # Must start FIRST before any application service
+  # ───────────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    # Using official MySQL image — no Dockerfile needed!
+    # Version 8.0 is stable and widely used in production
+
+    container_name: mysql_banking
+    # Gives container a fixed name
+    # Other services connect using this name: mysql_banking:3306
+
+    environment:
+      # These env vars are read by MySQL on first startup
+      # to create root user and default database
+      MYSQL_ROOT_PASSWORD: root
+      # Root password for MySQL admin access
+
+      MYSQL_DATABASE: banking_db
+      # Creates this database automatically on first start
+
+      MYSQL_USER: banking_user
+      # Creates a non-root user for application to use
+
+      MYSQL_PASSWORD: banking_pass
+      # Password for banking_user
+
+    ports:
+      - "3306:3306"
+      # Format: "HOST_PORT:CONTAINER_PORT"
+      # 3306 is MySQL default port
+      # Left side (3306) = port on your EC2 machine
+      # Right side (3306) = port inside container
+      # This lets you connect to MySQL from outside using EC2-IP:3306
+
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # Mount named volume to MySQL data directory
+      # /var/lib/mysql = where MySQL stores all database files
+      # So even if container restarts, data is safe!
+
+    networks:
+      - banking-net
+      # Connect to our custom network
+      # So all other services can reach MySQL by name
+
+    healthcheck:
+      # Docker will check if MySQL is TRULY ready
+      # not just started — ready to accept connections!
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      # Command that checks MySQL is responding
+      interval: 10s
+      # Check every 10 seconds
+      timeout: 5s
+      # Wait max 5 seconds for response
+      retries: 5
+      # Try 5 times before marking as unhealthy
+
+  # ───────────────────────────────────────────────────────────────────
+  # 2. PostgreSQL — Database for Keycloak
+  # Keycloak needs its own DB to store users, roles, tokens
+  # Separate from MySQL so banking data and auth data don't mix
+  # ───────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15
+    # Official PostgreSQL image version 15
+
+    container_name: postgres_keycloak
+    # Named clearly to show it belongs to Keycloak
+
+    environment:
+      POSTGRES_DB: keycloak_db
+      # Database name Keycloak will use
+      POSTGRES_USER: keycloak
+      # Username Keycloak connects with
+      POSTGRES_PASSWORD: keycloak
+      # Password for above user
+
+    ports:
+      - "5432:5432"
+      # 5432 is PostgreSQL default port
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Persist Keycloak auth data permanently
+      # /var/lib/postgresql/data = PostgreSQL data directory
+
+    networks:
+      - banking-net
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      # pg_isready checks if PostgreSQL is accepting connections
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ───────────────────────────────────────────────────────────────────
+  # 3. Keycloak — Authentication Server
+  # Handles user login, JWT tokens, roles and permissions
+  # User service delegates all auth to Keycloak
+  # Must start AFTER PostgreSQL is healthy
+  # ───────────────────────────────────────────────────────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0.0
+    # Official Keycloak image from Red Hat registry
+    # Version 23 is stable and supports Spring Boot 3
+
+    container_name: keycloak_server
+
+    environment:
+      KC_DB: postgres
+      # Tell Keycloak to use PostgreSQL as its database
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db
+      # postgres = container name of our PostgreSQL service
+      # Keycloak finds PostgreSQL using container name on banking-net
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KEYCLOAK_ADMIN: admin
+      # Admin username to login to Keycloak UI
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      # Admin password — change this in production!
+
+    command: start-dev
+    # Starts Keycloak in development mode
+    # In production you would use: start
+
+    ports:
+      - "8080:8080"
+      # Access Keycloak UI at: http://EC2-IP:8080
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Wait until PostgreSQL healthcheck passes
+      # THEN start Keycloak — not before!
+
+    networks:
+      - banking-net
+
+  # ───────────────────────────────────────────────────────────────────
+  # 4. RabbitMQ — Message Queue
+  # Used by fund-transfer and utility-payment services
+  # to send async notifications after transactions
+  # ───────────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3-management
+    # 3-management tag includes the web management UI
+    # Without management tag you get just the broker, no UI
+
+    container_name: rabbitmq_banking
+
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      # Default username to connect to RabbitMQ
+      RABBITMQ_DEFAULT_PASS: guest
+      # Default password — change in production!
+
+    ports:
+      - "5672:5672"
+      # 5672 = AMQP port — used by Spring Boot to send/receive messages
+      - "15672:15672"
+      # 15672 = Management UI port
+      # Access at: http://EC2-IP:15672
+      # Login: guest/guest
+
+    networks:
+      - banking-net
+
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      # Checks if RabbitMQ broker is alive and responding
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ───────────────────────────────────────────────────────────────────
+  # 5. Zipkin — Distributed Tracing
+  # Tracks requests as they flow across multiple microservices
+  # Example: User clicks transfer → traces through gateway →
+  # fund-transfer → core-banking → shows full journey!
+  # ───────────────────────────────────────────────────────────────────
+  zipkin:
+    image: openzipkin/zipkin
+    # Official Zipkin image — no config needed, works out of the box
+
+    container_name: zipkin_server
+
+    ports:
+      - "9411:9411"
+      # Access Zipkin UI at: http://EC2-IP:9411
+
+    networks:
+      - banking-net
+    # No healthcheck needed — Zipkin is stateless and starts instantly
+
+  # ───────────────────────────────────────────────────────────────────
+  # 6. Service Registry (Eureka)
+  # Acts as phone directory for all microservices
+  # Every service registers here on startup
+  # Other services query here to find each other
+  # Must start BEFORE config-server and all app services!
+  # ───────────────────────────────────────────────────────────────────
+  service-registry:
+    build:
+      context: ./internet-banking-service-registry
+      # Path to the service folder containing Dockerfile
+      dockerfile: Dockerfile
+      # Name of the Dockerfile to use
+
+    container_name: service_registry
+
+    ports:
+      - "8761:8081"
+      # Access Eureka dashboard at: http://EC2-IP:8761
+      # Shows all registered services and their status
+      # Container port is 8081, expose as 8761 on host
+
+    networks:
+      - banking-net
+
+    healthcheck:
+      test: ["CMD", "curl", "-f",
+             "http://localhost:8081/actuator/health"]
+      # Spring Boot actuator health endpoint
+      # Returns 200 OK when service is fully ready
+      interval: 15s
+      # Check every 15 seconds — Spring Boot takes longer to start
+      timeout: 5s
+      retries: 5
+
+  # ───────────────────────────────────────────────────────────────────
+  # 7. Config Server
+  # Central configuration provider for ALL services
+  # Stores DB URLs, credentials, ports for all services
+  # Services fetch their config from here at startup
+  # Must start AFTER Eureka — it registers itself there
+  # Must start BEFORE all application services!
+  # ───────────────────────────────────────────────────────────────────
+  config-server:
+    build:
+      context: ./internet-banking-config-server
+      dockerfile: Dockerfile
+
+    container_name: config_server
+
+    ports:
+      - "8090:8090"
+      # Config server port
+      # Services call: http://config-server:8090 to get their config
+
+    depends_on:
+      service-registry:
+        condition: service_healthy
+      # Config server must register with Eureka first
+      # So wait until Eureka is healthy before starting
+
+    networks:
+      - banking-net
+
+    healthcheck:
+      test: ["CMD", "curl", "-f",
+             "http://localhost:8090/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ───────────────────────────────────────────────────────────────────
+  # 8. Core Banking Service — The Banking Brain
+  # Handles accounts, balances, transactions
+  # All other business services call THIS service
+  # Needs: MySQL (DB) + Eureka (register) + Config (get config)
+  # ───────────────────────────────────────────────────────────────────
+  core-banking-service:
+    build:
+      context: ./core-banking-service
+      dockerfile: Dockerfile
+
+    container_name: core_banking_service
+
+    ports:
+      - "8092:8092"
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+        # Wait for MySQL to be healthy — needs DB to store accounts
+      service-registry:
+        condition: service_healthy
+        # Wait for Eureka — needs to register itself
+      config-server:
+        condition: service_healthy
+        # Wait for Config Server — needs to fetch DB config
+
+    networks:
+      - banking-net
+    # Note: wait-for-it.sh in Dockerfile also handles
+    # dependency waiting at container level as extra safety!
+
+  # ───────────────────────────────────────────────────────────────────
+  # 9. User Service
+  # Handles user registration, login, profile management
+  # Talks to: Keycloak (auth) + Core Banking (create account)
+  # Needs: MySQL + Keycloak + Eureka + Config
+  # ───────────────────────────────────────────────────────────────────
+  user-service:
+    build:
+      context: ./internet-banking-user-service
+      dockerfile: Dockerfile
+
+    container_name: user_service
+
+    ports:
+      - "8083:8083"
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      service-registry:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+        # service_started (not healthy) because Keycloak
+        # doesn't have a simple health endpoint
+        # It just needs to be started, not fully verified
+
+    networks:
+      - banking-net
+
+  # ───────────────────────────────────────────────────────────────────
+  # 10. Fund Transfer Service
+  # Handles money transfers between bank accounts
+  # After transfer: pushes notification to RabbitMQ
+  # Needs: MySQL + RabbitMQ + Eureka + Config
+  # ───────────────────────────────────────────────────────────────────
+  fund-transfer-service:
+    build:
+      context: ./internet-banking-fund-transfer-service
+      dockerfile: Dockerfile
+
+    container_name: fund_transfer_service
+
+    ports:
+      - "8084:8084"
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+        # Needs MySQL to store transfer records
+      rabbitmq:
+        condition: service_healthy
+        # Needs RabbitMQ to publish transfer notifications
+        # This is why fund-transfer needs wait-for-it in Dockerfile!
+      config-server:
+        condition: service_healthy
+      service-registry:
+        condition: service_healthy
+
+    networks:
+      - banking-net
+
+  # ───────────────────────────────────────────────────────────────────
+  # 11. Utility Payment Service
+  # Handles utility bill payments (electricity, water etc)
+  # After payment: pushes notification to RabbitMQ
+  # Same dependencies as fund-transfer service
+  # ───────────────────────────────────────────────────────────────────
+  utility-payment-service:
+    build:
+      context: ./internet-banking-utility-payment-service
+      dockerfile: Dockerfile
+
+    container_name: utility_payment_service
+
+    ports:
+      - "8085:8085"
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+        # Also needs RabbitMQ for payment notifications
+      config-server:
+        condition: service_healthy
+      service-registry:
+        condition: service_healthy
+
+    networks:
+      - banking-net
+
+  # ───────────────────────────────────────────────────────────────────
+  # 12. API Gateway — Single Entry Point
+  # All client requests come here FIRST
+  # Routes to correct microservice based on URL path
+  # Example: /api/users → user-service
+  #          /api/transfer → fund-transfer-service
+  # Must start LAST — after ALL services are up!
+  # ───────────────────────────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ./internet-banking-api-gateway
+      dockerfile: Dockerfile
+
+    container_name: api_gateway
+
+    ports:
+      - "8082:8082"
+      # This is the ONLY port you expose to users!
+      # All traffic goes through here
+      # Access app at: http://EC2-IP:8082
+
+    depends_on:
+      service-registry:
+        condition: service_healthy
+        # Must know all service locations via Eureka
+      config-server:
+        condition: service_healthy
+        # Must get routing config from Config Server
+      core-banking-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+      fund-transfer-service:
+        condition: service_started
+      utility-payment-service:
+        condition: service_started
+      # Wait for all services to start before gateway opens!
+      # Gateway is useless if services behind it aren't ready
+
+    networks:
+      - banking-net

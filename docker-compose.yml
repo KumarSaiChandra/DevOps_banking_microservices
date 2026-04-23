@@ -246,7 +246,8 @@ services:
     container_name: service_registry
 
     ports:
-      - "8761:8081"
+      - "8081:8081"
+      - "8761:8761"
       # Access Eureka dashboard at: http://EC2-IP:8761
       # Shows all registered services and their status
       # Container port is 8081, expose as 8761 on host
@@ -259,10 +260,12 @@ services:
              "http://localhost:8081/actuator/health"]
       # Spring Boot actuator health endpoint
       # Returns 200 OK when service is fully ready
-      interval: 15s
-      # Check every 15 seconds — Spring Boot takes longer to start
-      timeout: 5s
-      retries: 5
+      interval: 30s
+      # Check every 30 seconds — Spring Boot takes longer to start
+      timeout: 20s
+      retries: 10
+      start_period: 60s
+      # Give it 60 seconds to start before health checks begin
 
   # ───────────────────────────────────────────────────────────────────
   # 7. Config Server
@@ -277,7 +280,13 @@ services:
       context: ./internet-banking-config-server
       dockerfile: Dockerfile
 
-    container_name: config_server
+    container_name: internet-banking-config-server
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      # Use the 'docker' profile to point to correct config repo
+      # In bootstrap-docker.yml, we set config URI to http://internet-banking-config-server:8090
+      # So config server fetches config from this URI when it starts
+      # Services also fetch config from this URI when they start
 
     ports:
       - "8090:8090"
@@ -296,9 +305,10 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f",
              "http://localhost:8090/actuator/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
+      interval: 30s
+      timeout: 20s
+      retries: 10
+      start_period: 90s
 
   # ───────────────────────────────────────────────────────────────────
   # 8. Core Banking Service — The Banking Brain

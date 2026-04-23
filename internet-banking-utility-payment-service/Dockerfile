@@ -13,5 +13,6 @@ WORKDIR /app
 COPY wait-for-it.sh wait-for-it.sh
 RUN chmod +x wait-for-it.sh
 COPY --from=build /app/build/libs/*.jar app.jar
+RUN apk add --no-cache curl
 EXPOSE 8085
 ENTRYPOINT ["java", "-jar", "app.jar"]

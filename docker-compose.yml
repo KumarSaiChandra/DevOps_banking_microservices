@@ -321,7 +321,9 @@ services:
       context: ./core-banking-service
       dockerfile: Dockerfile
 
-    container_name: core_banking_service
+    container_name: core-banking-service
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
 
     ports:
       - "8092:8092"
@@ -353,7 +355,9 @@ services:
       context: ./internet-banking-user-service
       dockerfile: Dockerfile
 
-    container_name: user_service
+    container_name: internet-banking-user-service
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
 
     ports:
       - "8083:8083"
@@ -385,7 +389,9 @@ services:
       context: ./internet-banking-fund-transfer-service
       dockerfile: Dockerfile
 
-    container_name: fund_transfer_service
+    container_name: internet-banking-fund-transfer-service
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
 
     ports:
       - "8084:8084"
@@ -416,8 +422,10 @@ services:
     build:
       context: ./internet-banking-utility-payment-service
       dockerfile: Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
 
-    container_name: utility_payment_service
+    container_name: internet-banking-utility-payment-service
 
     ports:
       - "8085:8085"
@@ -449,7 +457,9 @@ services:
       context: ./internet-banking-api-gateway
       dockerfile: Dockerfile
 
-    container_name: api_gateway
+    container_name: internet-banking-api-gateway
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
 
     ports:
       - "8082:8082"

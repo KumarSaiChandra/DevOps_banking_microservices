@@ -12,6 +12,7 @@ spec:
     requests:
       storage: 1Gi
 
+---
 # MySQL Deployment
 apiVersion: apps/v1
 kind: Deployment
@@ -50,14 +51,14 @@ spec:
         readinessProbe:
           exec:
             command: [mysqladmin, ping, -h, localhost]
-          initialDelaySeconds: 30
-          periodSeconds: 10
+          initialDelaySeconds: 90
+          periodSeconds: 30
       volumes:
       - name: mysql-storage
         persistentVolumeClaim:
           claimName: mysql-pvc
 
-
+---
 # MySQL Service — ClusterIP (internal only)
 apiVersion: v1
 kind: Service

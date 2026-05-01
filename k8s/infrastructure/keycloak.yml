@@ -1,0 +1,65 @@
+# Keycloak — Authentication and Authorization Server
+# Handles: user login, JWT token generation, role management
+# user-service delegates ALL auth operations to Keycloak
+# Needs PostgreSQL running first to store auth data
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: banking
+  labels:
+    app: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+      - name: keycloak
+        image: quay.io/keycloak/keycloak:23.0.0  # Red Hat official Keycloak image
+        args: [start-dev]          # Development mode (use 'start' for production)
+        ports:
+        - containerPort: 8080      # Keycloak UI and API port
+        env:
+        - name: KC_DB
+          value: postgres          # Tell Keycloak to use PostgreSQL
+        - name: KC_DB_URL
+          value: jdbc:postgresql://postgres:5432/keycloak_db
+          # postgres = K8s Service name from postgres.yml
+        - name: KC_DB_USERNAME
+          value: keycloak          # Must match POSTGRES_USER in postgres.yml
+        - name: KC_DB_PASSWORD
+          value: keycloak          # Must match POSTGRES_PASSWORD in postgres.yml
+        - name: KEYCLOAK_ADMIN
+          value: admin             # Admin UI login username
+        - name: KEYCLOAK_ADMIN_PASSWORD
+          value: admin             # Admin UI login password
+        readinessProbe:
+          httpGet:
+            path: /realms/master   # Keycloak is ready when this endpoint responds
+            port: 8080
+          initialDelaySeconds: 60  # Keycloak takes 60+ seconds to start
+          periodSeconds: 15
+          timeoutSeconds: 10
+ --
+ 
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak                   # user-service connects using: keycloak:8080
+  namespace: banking
+spec:
+  selector:
+    app: keycloak
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 32080               # Access Keycloak UI at http://<minikube-ip>:32080
+  type: NodePort
+
+# After deploying: login at http://<minikube-ip>:30080  with admin/admin

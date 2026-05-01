@@ -1,0 +1,53 @@
+# Core Banking Service — the BRAIN of the system
+# Responsible for: accounts, balances, transactions
+# ALL other business services call THIS service for banking operations
+# Depends on: MySQL (data storage), Eureka (discovery), Config Server (config)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core-banking-service
+  namespace: banking
+  labels:
+    app: core-banking-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: core-banking-service
+  template:
+    metadata:
+      labels:
+        app: core-banking-service
+    spec:
+      containers:
+      - name: core-banking-service
+        image: kumarsaichandra/core-banking-service:latest
+        ports:
+        - containerPort: 8092
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: docker            # Uses bootstrap-docker.yml → correct DB URL
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8092
+          initialDelaySeconds: 120 # 2 min wait — MySQL + Eureka + Config must be ready
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 10
+
+---
+ 
+apiVersion: v1
+kind: Service
+metadata:
+  name: core-banking-service      # Other services call: core-banking-service:8092
+  namespace: banking
+spec:
+  selector:
+    app: core-banking-service
+  ports:
+  - port: 8092
+    targetPort: 8092
+    nodePort: 30092               # Test at: http://<minikube-ip>:30092/actuator/health
+  type: NodePort

@@ -1,0 +1,61 @@
+# Service Registry (Eureka Server)
+# Acts as phone directory — every service registers here on startup
+# When service A wants to call service B, it asks Eureka for B's address
+# No business logic — pure infrastructure service
+# Two ports: 8081 (Tomcat web dashboard) and 8761 (Eureka registration port)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-registry
+  namespace: banking
+  labels:
+    app: service-registry
+spec:
+  replicas: 1                      # Always run exactly 1 Eureka
+  selector:
+    matchLabels:
+      app: service-registry
+  template:
+    metadata:
+      labels:
+        app: service-registry
+    spec:
+      containers:
+      - name: service-registry
+        image: kumarsaichandra/service-registry:latest  # Your Docker Hub image
+        ports:
+        - containerPort: 8761      # Eureka registration port
+        - containerPort: 8081      # Tomcat web server (Eureka dashboard lives here!)
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: docker            # Activates bootstrap-docker.yml
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8081             # Use Tomcat port 8081, NOT Eureka port 8761!
+          initialDelaySeconds: 60  # Spring Boot takes 60+ seconds to start
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 10     # Allow 10 failures during slow startup
+---
+ 
+# IMPORTANT: Service name must match bootstrap-docker.yml eureka URL!
+# Other services look for Eureka at: internet-banking-service-registry:8761
+# If name doesn't match, services cannot register with Eureka!
+apiVersion: v1
+kind: Service
+metadata:
+  name: internet-banking-service-registry  # MUST match bootstrap-docker.yml!
+  namespace: banking
+spec:
+  selector:
+    app: service-registry
+  ports:
+  - name: web
+    port: 8081
+    targetPort: 8081
+    nodePort: 30081                # Eureka dashboard at <minikube-ip>:30081
+  - name: eureka
+    port: 8761                     # Services register at port 8761
+    targetPort: 8761
+  type: NodePort

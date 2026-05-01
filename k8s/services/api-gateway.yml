@@ -1,0 +1,59 @@
+# API Gateway (Spring Cloud Gateway)
+# Single entry point for ALL external requests
+# Routes requests to correct service based on URL path:
+#   /api/users    → user-service
+#   /api/accounts → core-banking-service
+#   /api/transfer → fund-transfer-service
+# Uses Eureka to discover service locations dynamically
+# MUST be deployed LAST — all services must be in Eureka first!
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: banking
+  labels:
+    app: api-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+      - name: api-gateway
+        image: kumarsaichandra/api-gateway:latest
+        ports:
+        - containerPort: 8082      # All traffic enters through this port
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: docker            # Uses Eureka URL for routing
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8082
+          initialDelaySeconds: 120 # Wait for all services to register in Eureka
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 10
+
+---
+ 
+# NodePort — this is the ONLY external port users need!
+# All APIs accessed via: http://<minikube-ip>:30082/api/...
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: banking
+spec:
+  selector:
+    app: api-gateway
+  ports:
+  - port: 8082
+    targetPort: 8082
+    nodePort: 30082                # Access ALL APIs at <minikube-ip>:30082
+  type: NodePort

@@ -1,0 +1,59 @@
+# Config Server (Spring Cloud Config Server)
+# Central configuration provider for ALL microservices
+# Stores: DB URLs, Eureka URL, RabbitMQ config, credentials etc
+# This is why each service has minimal application.yml (just service name)
+# Services fetch full config from here at startup
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: config-server
+  namespace: banking
+  labels:
+    app: config-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: config-server
+  template:
+    metadata:
+      labels:
+        app: config-server
+    spec:
+      containers:
+      - name: config-server
+        image: devops_banking_microservice-config-server:latest
+        ports:
+        - containerPort: 8090
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: docker            # Activates bootstrap-docker.yml
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8090
+          initialDelaySeconds: 90  # Needs more time — fetches config from Eureka first
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 10     # Allow 10 failures during slow startup
+
+---
+ 
+# CRITICAL: Service name MUST match uri in bootstrap-docker.yml!
+# bootstrap-docker.yml has: uri: http://internet-banking-config-server:8090
+# If this name is wrong, ALL app services will fail to start with connection error!
+apiVersion: v1
+kind: Service
+metadata:
+  name: internet-banking-config-server  # MUST match bootstrap-docker.yml uri!
+  namespace: banking
+spec:
+  selector:
+    app: config-server
+  ports:
+  - port: 8090
+    targetPort: 8090
+    nodePort: 30090
+  type: NodePort
+ 
+# Verify: kubectl logs -f <config-server-pod> -n banking

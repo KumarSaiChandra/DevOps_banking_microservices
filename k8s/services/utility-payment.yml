@@ -1,0 +1,53 @@
+# Utility Payment Service
+# Handles: utility bill payments (electricity, water, phone etc)
+# Flow: payment request → debit via core-banking → save in MySQL → notify via RabbitMQ
+# Same dependencies as fund-transfer-service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: utility-payment-service
+  namespace: banking
+  labels:
+    app: utility-payment-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: utility-payment-service
+  template:
+    metadata:
+      labels:
+        app: utility-payment-service
+    spec:
+      containers:
+      - name: utility-payment-service
+        image: kumarsaichandra/utility-payment-service:latest
+        ports:
+        - containerPort: 8085
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: docker
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8085
+          initialDelaySeconds: 120
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 10
+
+---
+ 
+apiVersion: v1
+kind: Service
+metadata:
+  name: internet-banking-utility-payment-service
+  namespace: banking
+spec:
+  selector:
+    app: utility-payment-service
+  ports:
+  - port: 8085
+    targetPort: 8085
+    nodePort: 30085
+  type: NodePort

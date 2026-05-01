@@ -1,0 +1,57 @@
+# RabbitMQ — Async messaging between services
+# fund-transfer-service publishes message after money transfer
+# utility-payment-service publishes message after bill payment
+# Two ports: 5672 (AMQP messaging) and 15672 (Web management UI)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  namespace: banking
+  labels:
+    app: rabbitmq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      containers:
+      - name: rabbitmq
+        image: rabbitmq:3-management  # management tag = includes Web UI
+        ports:
+        - containerPort: 5672         # AMQP port — Spring Boot connects here
+        - containerPort: 15672        # Management UI — browser access
+        env:
+        - name: RABBITMQ_DEFAULT_USER
+          value: guest
+        - name: RABBITMQ_DEFAULT_PASS
+          value: guest
+        readinessProbe:
+          exec:
+            command: [rabbitmq-diagnostics, ping]
+          initialDelaySeconds: 30     # RabbitMQ needs ~30s to start
+          periodSeconds: 10
+          timeoutSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq                  # Services connect using: rabbitmq:5672
+  namespace: banking
+spec:
+  selector:
+    app: rabbitmq
+  ports:
+  - name: amqp                    # AMQP port for Spring Boot
+    port: 5672
+    targetPort: 5672
+  - name: management              # Web UI port
+    port: 15672
+    targetPort: 15672
+    nodePort: 31672               # Access at http://<minikube-ip>:31672
+  type: NodePort

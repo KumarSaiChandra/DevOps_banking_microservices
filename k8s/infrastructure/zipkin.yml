@@ -1,0 +1,42 @@
+# Zipkin — Distributed Tracing UI
+# Shows the full journey of a request across microservices
+# Example: transfer request → api-gateway → fund-transfer → core-banking
+# Useful for finding which service is slow in production!
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zipkin
+  namespace: banking
+  labels:
+    app: zipkin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zipkin
+  template:
+    metadata:
+      labels:
+        app: zipkin
+    spec:
+      containers:
+      - name: zipkin
+        image: openzipkin/zipkin   # Official Zipkin image — no config needed
+        ports:
+        - containerPort: 9411     # Zipkin default port
+ 
+---
+ 
+apiVersion: v1
+kind: Service
+metadata:
+  name: zipkin                    # Services send traces to: zipkin:9411
+  namespace: banking
+spec:
+  selector:
+    app: zipkin
+  ports:
+  - port: 9411
+    targetPort: 9411
+    nodePort: 30411               # Access Zipkin UI at <minikube-ip>:30411
+  type: NodePort

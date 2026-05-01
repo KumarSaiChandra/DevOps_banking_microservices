@@ -1,0 +1,53 @@
+# Fund Transfer Service
+# Flow: transfer request → debit/credit via core-banking
+#       → save record in MySQL → publish notification to RabbitMQ
+# Depends on: MySQL, RabbitMQ, Eureka, Config Server
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fund-transfer-service
+  namespace: banking
+  labels:
+    app: fund-transfer-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fund-transfer-service
+  template:
+    metadata:
+      labels:
+        app: fund-transfer-service
+    spec:
+      containers:
+      - name: fund-transfer-service
+        image: kumarsaichandra/fund-transfer-service:latest
+        ports:
+        - containerPort: 8084
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: docker            # Activates config with RabbitMQ URL
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8084
+          initialDelaySeconds: 120 # Needs RabbitMQ + MySQL + Config ready
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 10
+
+---
+ 
+apiVersion: v1
+kind: Service
+metadata:
+  name: internet-banking-fund-transfer-service
+  namespace: banking
+spec:
+  selector:
+    app: fund-transfer-service
+  ports:
+  - port: 8084
+    targetPort: 8084
+    nodePort: 30084
+  type: NodePort

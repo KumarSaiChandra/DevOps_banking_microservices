@@ -1,0 +1,53 @@
+# User Service
+# Handles: registration, login, profile management
+# On new user: creates MySQL record + Keycloak account + calls core-banking
+# Depends on: MySQL, Eureka, Config Server, Keycloak
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: banking
+  labels:
+    app: user-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+      - name: user-service
+        image: kumarsaichandra/user-service:latest
+        ports:
+        - containerPort: 8083
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: docker
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8083
+          initialDelaySeconds: 120
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 10
+
+---
+ 
+apiVersion: v1
+kind: Service
+metadata:
+  name: internet-banking-user-service
+  namespace: banking
+spec:
+  selector:
+    app: user-service
+  ports:
+  - port: 8083
+    targetPort: 8083
+    nodePort: 30083
+  type: NodePort

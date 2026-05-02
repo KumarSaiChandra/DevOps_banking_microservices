@@ -1,0 +1,19 @@
+#Create k8s/ingress.yml that routes paths to the correct backend services. All traffic enters through one host.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: banking-ingress
+  namespace: banking
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  spec:
+    ingressClassName: nginx
+    rules:- host: banking.local
+    http:
+    paths:- path: /
+    pathType: Prefix
+    backend:
+  service:
+    name: api-gateway
+    port:
+      number: 8082
